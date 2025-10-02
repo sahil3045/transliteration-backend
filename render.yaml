@@ -5,6 +5,9 @@ services:
     dockerfilePath: ./Dockerfile
     dockerContext: ./
     healthCheckPath: /
+    # --- ADD THIS SECTION ---
+    healthCheckInitialDelaySeconds: 300 
+    # ------------------------
     envVars:
       - key: PORT
         value: 10000
