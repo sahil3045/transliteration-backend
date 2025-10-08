@@ -1,8 +1,11 @@
+# requirements.txt
 fastapi
 uvicorn
 python-multipart
-pytesseract
+# pytesseract is no longer needed
 indic-transliteration
 opencv-python-headless
 pyspellchecker
-Pillow 
+Pillow
+paddlepaddle
+paddleocr

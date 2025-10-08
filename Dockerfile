@@ -1,35 +1,22 @@
-# Stage 1: Build stage with build dependencies
-FROM python:3.11-slim as builder
-
-# Install system build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install python build dependencies
-COPY requirements.txt .
-RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
-
-
-# Stage 2: Final stage with runtime dependencies
+# Start with a stable Python base image
 FROM python:3.11-slim
 
 # Install Tesseract OCR engine and its language packs
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y \
     tesseract-ocr \
     tesseract-ocr-all \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy wheels from the builder stage and install
-COPY --from=builder /wheels /wheels
-RUN pip install --no-cache-dir /wheels/*
-
 # Set up a working directory
 WORKDIR /app
+
+# Copy your requirements file and install Python packages
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy your application code
 COPY . .
 
-# Expose the port and define the command to run the application
-EXPOSE 10000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
+# Expose the port and run the application with the correct file name
+EXPOSE 7860
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7860"]

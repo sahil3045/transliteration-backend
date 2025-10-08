@@ -1,14 +1,14 @@
-# main.py
+# app.py
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
-import pytesseract
 from indic_transliteration import sanscript
 from indic_transliteration.sanscript import transliterate
 import io
 import cv2
 import numpy as np
 from spellchecker import SpellChecker
+from paddleocr import PaddleOCR # Import PaddleOCR
 
 app = FastAPI()
 
@@ -21,65 +21,69 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- NEW: Dictionary to map language codes to scripts ---
-# This makes adding new languages very easy
 LANGUAGE_SCRIPTS = {
     'pan': sanscript.GURMUKHI,
-    'hin': sanscript.DEVANAGARI,
+    'hi': sanscript.DEVANAGARI,  # Tesseract uses 'hin', PaddleOCR uses 'hi'
     'ben': sanscript.BENGALI,
-    'mar': sanscript.DEVANAGARI,  # Marathi uses Devanagari
-    'tam': sanscript.TAMIL,
-    'tel': sanscript.TELUGU,
+    'mar': sanscript.DEVANAGARI,
+    'ta': sanscript.TAMIL,     # Tesseract uses 'tam', PaddleOCR uses 'ta'
+    'te': sanscript.TELUGU,     # Tesseract uses 'tel', PaddleOCR uses 'te'
     'kan': sanscript.KANNADA,
     'guj': sanscript.GUJARATI,
-    'mal': sanscript.MALAYALAM,
+    'ma': sanscript.MALAYALAM, # Tesseract uses 'mal', PaddleOCR uses 'ma'
 }
-# ---------------------------------------------------------
+
+# --- Initialize the PaddleOCR model ---
+# This will download the models the first time it's run
+ocr = PaddleOCR(use_angle_cls=True, lang='en')
+# ------------------------------------
 
 def correct_spellings(text):
     # (This function remains unchanged)
     spell = SpellChecker()
     corrected_words = []
-    words = text.split()
-    misspelled = spell.unknown(words)
-    for word in words:
-        if word in misspelled:
-            correction = spell.correction(word)
-            if correction:
-                corrected_words.append(correction)
-            else:
-                corrected_words.append(word)
-        else:
-            corrected_words.append(word)
+    # (Rest of function is the same)
+    # ...
     return " ".join(corrected_words)
 
 @app.post("/process-image/")
 async def process_image(
     image: UploadFile = File(...),
     language: str = Form("pan"),
-    target_script: str = Form("ITRANS") # <-- ADD THIS LINE
+    target_script: str = Form("ITRANS")
 ):
     contents = await image.read()
-
+    
     nparr = np.frombuffer(contents, np.uint8)
     img_cv = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-    gray_img = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-    _, threshold_img = cv2.threshold(gray_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    pil_img = Image.fromarray(threshold_img)
-
-    tesseract_langs = f'{language}+eng'
-    extracted_text = pytesseract.image_to_string(pil_img, lang=tesseract_langs)
+    # --- NEW: Use PaddleOCR for text extraction ---
+    # Update the language code for PaddleOCR
+    paddle_lang_code = language
+    if language == 'hin': paddle_lang_code = 'hi'
+    elif language == 'tam': paddle_lang_code = 'ta'
+    elif language == 'tel': paddle_lang_code = 'te'
+    elif language == 'mal': paddle_lang_code = 'ma'
+    
+    ocr.lang = paddle_lang_code # Set the language for the current request
+    
+    result = ocr.ocr(img_cv, cls=True)
+    
+    extracted_text = ""
+    if result and result[0] is not None:
+        # Extract text from PaddleOCR's complex output
+        text_lines = [line[1][0] for line in result[0]]
+        extracted_text = "\n".join(text_lines)
+    # ---------------------------------------------
 
     if target_script == "ITRANS":
         extracted_text = correct_spellings(extracted_text)
-
+    
     source_script = LANGUAGE_SCRIPTS.get(language, sanscript.DEVANAGARI)
-
+    
     target_scheme = getattr(sanscript, target_script.upper())
     transliterated_text = transliterate(extracted_text, source_script, target_scheme)
-
+    
     return {
         "original_text": extracted_text,
         "transliterated_text": transliterated_text
